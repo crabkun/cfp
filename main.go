@@ -28,7 +28,7 @@ func init() {
 	var allowHost string
 	fmt.Printf("cfp version %s\n", VERSION)
 
-	flag.StringVar(&CfAddr, "cfaddr", "", "cloudflare node address (without port)")
+	flag.StringVar(&CfAddr, "cfaddr", "", "cloudflare node address (with port)")
 	flag.StringVar(&allowHost, "hosts", "", "allow host(s),separate by comma")
 	flag.StringVar(&ListenAddress, "addr", "0.0.0.0", "listen addr")
 	flag.IntVar(&ListenPort, "port", 80, "listen port")
@@ -101,7 +101,7 @@ func handle(conn net.Conn) {
 		return
 	}
 
-	proxy, err := net.Dial("tcp", CfAddr+":80")
+	proxy, err := net.Dial("tcp", CfAddr)
 	if err != nil {
 		log.Errorf("dial cloudflare node failed: %v", err)
 		return
