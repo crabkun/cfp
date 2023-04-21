@@ -15,7 +15,7 @@ cfp
   -port
     	本地监听的端口，后续客户端连接这个端口
   -cfaddr
-    	cloudflare节点地址，不需要带端口，直接输入IP就行
+    	cloudflare节点地址，可以不带端口（默认80）
   -hosts
     	host白名单，也就是v2客户端上面的ws host啦。不在白名单内的host会被断开连接。多个host用逗号分隔
   -debug

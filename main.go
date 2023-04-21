@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -18,7 +19,7 @@ const (
 
 var (
 	CfAddr        = ""
-	AllowHostMap  = map[string]bool{}
+	AllowHostMap  = []string{}
 	ListenPort    = 80
 	ListenAddress = ""
 	Debug         = false
@@ -28,7 +29,7 @@ func init() {
 	var allowHost string
 	fmt.Printf("cfp version %s\n", VERSION)
 
-	flag.StringVar(&CfAddr, "cfaddr", "", "cloudflare node address (with port)")
+	flag.StringVar(&CfAddr, "cfaddr", "", "cloudflare node address")
 	flag.StringVar(&allowHost, "hosts", "", "allow host(s),separate by comma")
 	flag.StringVar(&ListenAddress, "addr", "0.0.0.0", "listen addr")
 	flag.IntVar(&ListenPort, "port", 80, "listen port")
@@ -55,7 +56,7 @@ func init() {
 
 	hosts := strings.Split(allowHost, ",")
 	for _, v := range hosts {
-		AllowHostMap[v] = true
+		AllowHostMap = append(AllowHostMap, v)
 	}
 
 }
@@ -80,6 +81,16 @@ func main() {
 	}
 }
 
+func checkHost(t string) bool {
+	t = strings.Split(t, ":")[0]
+	for _, v := range AllowHostMap {
+		if strings.HasSuffix(t, v) {
+			return true
+		}
+	}
+	return false
+}
+
 func handle(conn net.Conn) {
 	var ok bool
 	defer func() {
@@ -96,12 +107,33 @@ func handle(conn net.Conn) {
 		return
 	}
 
-	if !AllowHostMap[req.Host] {
+	if req.Header.Get("cfp") != "" {
+		log.Errorf("found loop: %s, %v", conn.RemoteAddr(), err)
+		return
+	}
+
+	if !checkHost(req.Host) {
 		log.Debugf("client host mismatch: %s, %s", conn.RemoteAddr(), req.Host)
 		return
 	}
 
-	proxy, err := net.Dial("tcp", CfAddr)
+	addr := CfAddr
+	if addr == "direct" {
+		req.Header.Add("cfp", "1")
+		addr = req.Host
+		if !strings.Contains(addr, ":") {
+			addr += ":80"
+		}
+	} else if len(strings.Split(CfAddr, ":")) != 2 {
+		port := "80"
+		portArr := strings.Split(req.Host, ":")
+		if len(portArr) == 2 {
+			port = portArr[1]
+		}
+		addr = addr + ":" + port
+	}
+
+	proxy, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Errorf("dial cloudflare node failed: %v", err)
 		return
@@ -113,22 +145,9 @@ func handle(conn net.Conn) {
 
 	req.Write(proxy)
 
-	go tcpBridge(conn, proxy)
-	tcpBridge(proxy, conn)
+	defer proxy.Close()
 
-}
+	go io.Copy(conn, proxy)
+	io.Copy(proxy, conn)
 
-func tcpBridge(a, b net.Conn) {
-	defer func() {
-		a.Close()
-		b.Close()
-	}()
-	buf := make([]byte, 2048)
-	for {
-		n, err := a.Read(buf)
-		if err != nil {
-			return
-		}
-		b.Write(buf[:n])
-	}
 }
